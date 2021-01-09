@@ -23,6 +23,7 @@ uint64_t oe_host_handle_exception(oe_host_exception_context_t* context)
     uint64_t tcs_address = context->rbx;
     uint64_t exit_address = context->rip;
 
+    // printf("blukat: exit_addr have %lx want %lx, code have %lx want %x\n", exit_address, OE_AEP_ADDRESS, exit_code, ENCLU_ERESUME);
     // Check if the signal happens inside the enclave.
     if ((exit_address == OE_AEP_ADDRESS) && (exit_code == ENCLU_ERESUME))
     {
@@ -41,6 +42,7 @@ uint64_t oe_host_handle_exception(oe_host_exception_context_t* context)
             abort();
         }
 
+        // printf("blukat: Before calling OE_ECALL_VIRTUAL_EXCEPTION_HANDLER\n");
         // Set the flag marks this thread is handling an enclave exception.
         thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
 

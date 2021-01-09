@@ -37,6 +37,8 @@ static void _host_signal_handler(
     host_context.rax = (uint64_t)context->uc_mcontext.gregs[REG_RAX];
     host_context.rbx = (uint64_t)context->uc_mcontext.gregs[REG_RBX];
     host_context.rip = (uint64_t)context->uc_mcontext.gregs[REG_RIP];
+    // printf("blukat: Host signal handler with signum=%d\n", sig_num);
+    // printf("blukat: Fault address %p rip %p\n", sig_info->si_addr, (void*)context->uc_mcontext.gregs[REG_RIP]);
 
     // Call platform neutral handler.
     uint64_t action = oe_host_handle_exception(&host_context);
