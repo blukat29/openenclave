@@ -800,16 +800,41 @@ static oe_result_t _link_elf_image(
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
             }
+            else if (
+                elf64_find_symbol_by_name(
+                    &image->elf, name, &symbol_definition) == 0 &&
+                symbol_definition.st_shndx != SHN_UNDEF)
+            {
+                OE_CHECK(oe_safe_add_s64(
+                    (int64_t)dependency->image_rva,
+                    (int64_t)symbol_definition.st_value,
+                    &p->r_addend));
+                OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+            }
+            else if (
+                elf64_find_symbol_by_name(
+                    &dependency->elf, name, &symbol_definition) == 0 &&
+                symbol_definition.st_shndx != SHN_UNDEF)
+            {
+                OE_CHECK(oe_safe_add_s64(
+                    (int64_t)dependency->image_rva,
+                    (int64_t)symbol_definition.st_value,
+                    &p->r_addend));
+                OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+            }
             else
             {
                 if ((symbol->st_info >> 4) != STB_WEAK)
-                    OE_RAISE_MSG(
-                        OE_UNSUPPORTED_ENCLAVE_IMAGE,
+                    OE_TRACE_ERROR(
+                        //OE_UNSUPPORTED_ENCLAVE_IMAGE,
                         "symbol %s not found\n",
                         name);
                 else
                     OE_TRACE_WARNING("Weak symbol %s is not resolved\n");
             }
+
+            printf("   %-30s, addend = %08lx, r_addend = %08lx, r_index = %08lx\n",
+                    name, addend, p->r_addend, p->r_info);
         }
         /* Patch non-symbolic relocation records */
         else if (reloc_type == R_X86_64_RELATIVE)
@@ -1076,6 +1101,7 @@ static oe_result_t _add_dynamic_section_relocations(
             dynamic[i].d_tag == DT_VERSYM)
             number_of_entries++;
     }
+    printf("   [+] # dynamic entries = %lu\n", number_of_entries);
 
     /* Number of entries should never be zero as some of them (e.g., DT_STRTAB
      * and DT_SYMTAB) are mandatory. */
@@ -1148,17 +1174,36 @@ static oe_result_t _patch_relocations(oe_enclave_image_t* image)
 {
     oe_result_t result = OE_UNEXPECTED;
 
+    printf("============= START ===============================\n");
     if (image->submodule)
     {
+        printf("------------------ LINK image -> submodule -------------------------\n");
         OE_CHECK(_link_elf_image(&image->elf, image->submodule));
+        printf("------------------ LINK submodule -> image -------------------------\n");
         OE_CHECK(_link_elf_image(image->submodule, &image->elf));
         /* Add relocation records for the dynamic section to conform
          * the behavior of ld.so */
+        printf("------------------ ADD dynamic section -------------------------\n");
         OE_CHECK(_add_dynamic_section_relocations(image->submodule));
     }
     /* Merge the relocation data from both base and module (if any) images and
      * apply zero-paddings (to the next page size) */
+    printf("------------------ ADD reloc -------------------------\n");
     OE_CHECK(_merge_and_pad_relocations(&image->elf, image->submodule));
+    printf("============= END =================================\n");
+
+#if 0
+    size_t reloc_rva = image->elf.image_size;
+    size_t reloc_size = image->elf.reloc_size;
+    size_t nrelocs = reloc_size / sizeof(elf64_rela_t);
+    printf("reloc_rva = 0x%zx reloc_size = 0x%zx count=%zu\n", reloc_rva, reloc_size, nrelocs);
+
+    const elf64_rela_t* relocs = (elf64_rela_t*)image->elf.reloc_data;
+    for (size_t i = 0; i < nrelocs; i++) {
+        const elf64_rela_t* p = &relocs[i];
+        printf("   off %08lx ty %lu add %08lx\n", p->r_offset, ELF64_R_TYPE(p->r_info), p->r_addend);
+    }
+#endif
 
     result = OE_OK;
 done:

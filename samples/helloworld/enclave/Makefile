@@ -39,7 +39,7 @@ build:
 	$(CC) -o helloworldenc helloworld_t.o enc.o $(MODULE) $(LDFLAGS) $(CRYPTO_LDFLAGS)
 
 module:
-	$(CC) -o $(MODULE) -shared foo.c
+	$(CC) -o $(MODULE) -shared -fPIC -pie foo.c
 
 sign:
 	oesign sign -e helloworldenc -c helloworld.conf -k private.pem
