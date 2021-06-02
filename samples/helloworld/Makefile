@@ -22,3 +22,5 @@ run:
 simulate:
 	host/helloworldhost ./enclave/helloworldenc.signed --simulate
 
+debug:
+	oegdb host/helloworldhost -x cmd
