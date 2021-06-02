@@ -8,6 +8,9 @@
 // sdk tool oeedger8r against the helloworld.edl file.
 #include "helloworld_t.h"
 
+// Include the dynamic module header
+#include "foo.h"
+
 // This is the function that the host calls. It prints
 // a message in the enclave before calling back out to
 // the host to print a message from there too.
@@ -30,4 +33,8 @@ void enclave_helloworld()
             result,
             oe_result_str(result));
     }
+
+    // Call dynamic module
+    fprintf(stdout, "foo_div(12, 3) = %d\n", foo_div(12, 3));
+    fprintf(stdout, "foo_div(12, 0) = %d\n", foo_div(12, 0));
 }

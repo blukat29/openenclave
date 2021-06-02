@@ -21,6 +21,8 @@ CFLAGS=$(shell pkg-config oeenclave-$(COMPILER) --cflags)
 LDFLAGS=$(shell pkg-config oeenclave-$(COMPILER) --libs)
 INCDIR=$(shell pkg-config oeenclave-$(COMPILER) --variable=includedir)
 
+MODULE=libfoo.so
+
 all:
 	$(MAKE) build
 	$(MAKE) keys
@@ -31,9 +33,10 @@ build:
 	oeedger8r ../helloworld.edl --trusted \
 		--search-path $(INCDIR) \
 		--search-path $(INCDIR)/openenclave/edl/sgx
+	$(CC) -o $(MODULE) -fPIC -shared foo.c
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 enc.c -o enc.o
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 helloworld_t.c -o helloworld_t.o
-	$(CC) -o helloworldenc helloworld_t.o enc.o $(LDFLAGS) $(CRYPTO_LDFLAGS)
+	$(CC) -o helloworldenc helloworld_t.o enc.o $(MODULE) $(LDFLAGS) $(CRYPTO_LDFLAGS)
 
 sign:
 	oesign sign -e helloworldenc -c helloworld.conf -k private.pem
