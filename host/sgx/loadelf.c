@@ -787,9 +787,31 @@ static oe_result_t _link_elf_image(
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
             }
+            else if (
+                elf64_find_symbol_by_name(
+                    &image->elf, name, &symbol_definition) == 0 &&
+                symbol_definition.st_shndx != SHN_UNDEF)
+            {
+                OE_CHECK(oe_safe_add_s64(
+                    (int64_t)image->image_rva,
+                    (int64_t)symbol_definition.st_value,
+                    &p->r_addend));
+                OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+            }
             /* Find the definition of the symbol in the dependent image */
             else if (
                 elf64_find_dynamic_symbol_by_name(
+                    &dependency->elf, name, &symbol_definition) == 0 &&
+                symbol_definition.st_shndx != SHN_UNDEF)
+            {
+                OE_CHECK(oe_safe_add_s64(
+                    (int64_t)dependency->image_rva,
+                    (int64_t)symbol_definition.st_value,
+                    &p->r_addend));
+                OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+            }
+            else if (
+                elf64_find_symbol_by_name(
                     &dependency->elf, name, &symbol_definition) == 0 &&
                 symbol_definition.st_shndx != SHN_UNDEF)
             {
