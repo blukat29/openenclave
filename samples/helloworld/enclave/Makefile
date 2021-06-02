@@ -22,6 +22,7 @@ LDFLAGS=$(shell pkg-config oeenclave-$(COMPILER) --libs)
 INCDIR=$(shell pkg-config oeenclave-$(COMPILER) --variable=includedir)
 
 MODULE=libfoo.so
+TARGET=libfoo.so
 
 all:
 	$(MAKE) module
@@ -35,8 +36,9 @@ build:
 		--search-path $(INCDIR) \
 		--search-path $(INCDIR)/openenclave/edl/sgx
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 enc.c -o enc.o
+	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 compat.c -o compat.o
 	$(CC) -g -c $(CFLAGS) -DOE_API_VERSION=2 helloworld_t.c -o helloworld_t.o
-	$(CC) -o helloworldenc helloworld_t.o enc.o $(MODULE) $(LDFLAGS) $(CRYPTO_LDFLAGS)
+	$(CC) -o helloworldenc helloworld_t.o enc.o $(TARGET) compat.o $(LDFLAGS) $(CRYPTO_LDFLAGS)
 
 module:
 	$(CC) -o $(MODULE) -shared -fPIC -pie foo.c
