@@ -101,7 +101,7 @@ static void _register_signal_handlers(void)
     // Use sa_sigaction instead of sa_handler, allow catching the same signal as
     // the one you're currently handling, and automatically restart the system
     // call that interrupted the signal.
-    sig_action.sa_flags = SA_SIGINFO | SA_NODEFER | SA_RESTART;
+    sig_action.sa_flags = SA_SIGINFO | SA_NODEFER | SA_RESTART | SA_ONSTACK;
 
     // Should honor the current signal masks.
     sigemptyset(&sig_action.sa_mask);
