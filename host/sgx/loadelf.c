@@ -1047,33 +1047,14 @@ done:
     return result;
 }
 
-static oe_result_t _get_symbol_rva(
-    oe_enclave_elf_image_t* image,
-    const char* name,
-    uint64_t* rva)
-{
-    oe_result_t result = OE_UNEXPECTED;
-    elf64_sym_t symbol = {0};
-
-    if (!image || !name || !rva)
-        OE_RAISE(OE_INVALID_PARAMETER);
-
-    if (elf64_find_symbol_by_name(&image->elf, name, &symbol) != 0)
-        goto done;
-
-    *rva = symbol.st_value;
-    result = OE_OK;
-
-done:
-    return result;
-}
-
 static oe_result_t _add_dynamic_section_relocations(
     oe_enclave_elf_image_t* image)
 {
     oe_result_t result = OE_FAILURE;
     elf64_dyn_t* dynamic = NULL;
     size_t dynamic_size = 0;
+    size_t dynamic_idx = 0;
+    elf64_shdr_t* dynamic_shdr = NULL;
     uint64_t dynamic_rva = 0;
     size_t number_of_entries = 0;
     elf64_rela_t* relocation_records = NULL;
@@ -1091,9 +1072,14 @@ static oe_result_t _add_dynamic_section_relocations(
     if (!dynamic || !dynamic_size)
         OE_RAISE(OE_INVALID_IMAGE);
 
-    /* The _DYNAMIC symbol holds the RVA of the dynamic section after loading,
-     * which is different from its offset within the ELF file. */
-    OE_CHECK(_get_symbol_rva(image, "_DYNAMIC", &dynamic_rva));
+    dynamic_idx = elf_find_shdr(&image->elf, ".dynamic");
+    if (dynamic_idx == (size_t)-1)
+        OE_RAISE(OE_INVALID_IMAGE);
+
+    dynamic_shdr = elf64_get_section_header(&image->elf, dynamic_idx);
+    if (!dynamic_shdr)
+        OE_RAISE(OE_INVALID_IMAGE);
+    dynamic_rva = dynamic_shdr->sh_addr;
 
     /* First loop: count the number of entries that we support now */
     for (uint64_t i = 0; dynamic[i].d_tag != DT_NULL; i++)
