@@ -749,6 +749,7 @@ static oe_result_t _link_elf_image(
     relocs = (elf64_rela_t*)image->reloc_data;
     nrelocs = image->reloc_size / sizeof(relocs[0]);
 
+    OE_TRACE_INFO("Symbol lookup %s -> %s\n", image->path, dependency->path);
     for (size_t i = 0; i < nrelocs; i++)
     {
         elf64_rela_t* p = &relocs[i];
@@ -787,6 +788,7 @@ static oe_result_t _link_elf_image(
                     (int64_t)symbol_definition.st_value,
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+                OE_TRACE_INFO("self.dyn %-30s %08lx", name, p->r_addend);
             }
             else if (
                 elf64_find_symbol_by_name(
@@ -798,6 +800,7 @@ static oe_result_t _link_elf_image(
                     (int64_t)symbol_definition.st_value,
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+                OE_TRACE_INFO("self.sym %-30s %08lx", name, p->r_addend);
             }
             /* Find the definition of the symbol in the dependent image */
             else if (
@@ -810,6 +813,7 @@ static oe_result_t _link_elf_image(
                     (int64_t)symbol_definition.st_value,
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+                OE_TRACE_INFO("modu.dyn %-30s %08lx", name, p->r_addend);
             }
             else if (
                 elf64_find_symbol_by_name(
@@ -821,6 +825,7 @@ static oe_result_t _link_elf_image(
                     (int64_t)symbol_definition.st_value,
                     &p->r_addend));
                 OE_CHECK(oe_safe_add_s64(p->r_addend, addend, &p->r_addend));
+                OE_TRACE_INFO("modu.sym %-30s %08lx", name, p->r_addend);
             }
             else
             {
@@ -830,7 +835,7 @@ static oe_result_t _link_elf_image(
                         "symbol %s not found\n",
                         name);
                 else
-                    OE_TRACE_WARNING("Weak symbol %s is not resolved\n");
+                    OE_TRACE_WARNING("Weak symbol %s is not resolved\n", name);
             }
         }
         /* Patch non-symbolic relocation records */
