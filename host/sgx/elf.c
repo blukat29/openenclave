@@ -11,6 +11,7 @@
 #include <openenclave/internal/safemath.h>
 #include <openenclave/internal/utils.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "../fopen.h"
@@ -262,6 +263,90 @@ static int _reset_buffer(
     return 0;
 }
 
+static int _compare_sorted_syms_name(
+    const elf64_sorted_sym_t* a,
+    const elf64_sorted_sym_t* b)
+{
+    int c;
+
+    if ((c = strcmp(a->section_name, b->section_name)) != 0)
+        return c;
+    return strcmp(a->name, b->name);
+}
+
+static int _preload_symbols(elf64_t* elf)
+{
+    int rc = -1;
+    const elf64_sym_t* symtab = NULL;
+    const elf64_sym_t* dynsym = NULL;
+    size_t symtab_size = 0;
+    size_t dynsym_size = 0;
+    size_t cap;
+    size_t n;
+    size_t i;
+
+    elf64_get_symbol_table(elf, &symtab, &symtab_size);
+    elf64_get_dynamic_symbol_table(elf, &dynsym, &dynsym_size);
+    OE_TRACE_INFO(
+        "Preloaded .symtab %zu symbols, .dynsym %zu symbols\n",
+        symtab_size,
+        dynsym_size);
+
+    cap = symtab_size + dynsym_size;
+    elf->syms_by_name =
+        (elf64_sorted_sym_t*)calloc(cap, sizeof(elf64_sorted_sym_t));
+    if (!elf->syms_by_name)
+        goto done;
+
+    n = 0;
+
+    for (i = 0; i < symtab_size; i++)
+    {
+        const elf64_sym_t* p = &symtab[i];
+        elf64_sorted_sym_t* q = &elf->syms_by_name[n];
+        const char* s;
+
+        if (p->st_name == 0)
+            continue;
+        if (!(s = elf64_get_string_from_strtab(elf, p->st_name)))
+            continue;
+
+        q->section_name = ".symtab";
+        q->name = s;
+        q->sym = p;
+        n++;
+    }
+
+    for (i = 0; i < dynsym_size; i++)
+    {
+        const elf64_sym_t* p = &dynsym[i];
+        elf64_sorted_sym_t* q = &elf->syms_by_name[n];
+        const char* s;
+
+        if (p->st_name == 0)
+            continue;
+        if (!(s = elf64_get_string_from_dynstr(elf, p->st_name)))
+            continue;
+
+        q->section_name = ".dynsym";
+        q->name = s;
+        q->sym = p;
+        n++;
+    }
+
+    elf->syms_size = n;
+
+    qsort(
+        elf->syms_by_name,
+        elf->syms_size,
+        sizeof(elf64_sorted_sym_t),
+        (int (*)(const void*, const void*))_compare_sorted_syms_name);
+
+    rc = 0;
+done:
+    return rc;
+}
+
 int elf64_load(const char* path, elf64_t* elf)
 {
     int rc = -1;
@@ -318,6 +403,10 @@ int elf64_load(const char* path, elf64_t* elf)
     /* Set the magic number */
     elf->magic = ELF_MAGIC;
 
+    /* Preload the symbols */
+    if (_preload_symbols(elf) != 0)
+        goto done;
+
     rc = 0;
 
 done:
@@ -328,6 +417,7 @@ done:
     if (rc != 0 && elf)
     {
         free(elf->data);
+        free(elf->syms_by_name);
         memset(elf, 0, sizeof(elf64_t));
     }
 
@@ -345,6 +435,7 @@ int elf64_unload(elf64_t* elf)
         goto done;
 
     free(elf->data);
+    free(elf->syms_by_name);
 
     rc = 0;
 
@@ -456,16 +547,47 @@ int elf64_find_symbol_by_name(
     elf64_sym_t* sym)
 {
     int rc = -1;
-    size_t index;
-    const elf64_shdr_t* sh;
-    const elf64_sym_t* symtab;
-    size_t n;
-    size_t i;
     const char* SECTIONNAME = ".symtab";
-    const elf64_word_t SH_TYPE = SHT_SYMTAB;
 
     if (!_is_valid_elf64(elf) || !name || !sym)
         goto done;
+
+    elf64_sorted_sym_t query;
+    query.section_name = SECTIONNAME;
+    query.name = name;
+
+    const elf64_sorted_sym_t* result = (const elf64_sorted_sym_t*)bsearch(
+        &query,
+        elf->syms_by_name,
+        elf->syms_size,
+        sizeof(elf64_sorted_sym_t),
+        (int (*)(const void*, const void*))_compare_sorted_syms_name);
+    if (!result)
+        goto done;
+
+    *sym = *result->sym;
+    rc = 0;
+
+done:
+    return rc;
+}
+
+int elf64_get_symbol_table(
+    const elf64_t* elf,
+    const elf64_sym_t** symtab,
+    size_t* size)
+{
+    int rc = -1;
+    size_t index;
+    const elf64_shdr_t* sh;
+    const char* SECTIONNAME = ".symtab";
+    const elf64_word_t SH_TYPE = SHT_SYMTAB;
+
+    if (!_is_valid_elf64(elf) || !symtab || !size)
+        goto done;
+
+    *symtab = NULL;
+    *size = 0;
 
     /* Find the symbol table section header */
     if ((index = _find_shdr(elf, SECTIONNAME)) == (size_t)-1)
@@ -487,34 +609,13 @@ int elf64_find_symbol_by_name(
         goto done;
 
     /* Set pointer to symbol table section */
-    if (!(symtab = (const elf64_sym_t*)_get_section(elf, index)))
+    if (!(*symtab = (const elf64_sym_t*)_get_section(elf, index)))
         goto done;
 
     /* Calculate number of symbol table entries */
-    n = sh->sh_size / sh->sh_entsize;
+    *size = sh->sh_size / sh->sh_entsize;
 
-    for (i = 1; i < n; i++)
-    {
-        const elf64_sym_t* p = &symtab[i];
-        const char* s;
-
-        /* Skip empty names */
-        if (p->st_name == 0)
-            continue;
-
-        /* If illegal name */
-        if (!(s = elf64_get_string_from_strtab(elf, p->st_name)))
-            goto done;
-
-        /* If found */
-        if (strcmp(name, s) == 0)
-        {
-            *sym = *p;
-            rc = 0;
-            goto done;
-        }
-    }
-
+    rc = 0;
 done:
     return rc;
 }
@@ -588,64 +689,26 @@ int elf64_find_dynamic_symbol_by_name(
     elf64_sym_t* sym)
 {
     int rc = -1;
-    size_t index;
-    const elf64_shdr_t* sh;
-    const elf64_sym_t* symtab;
-    size_t n;
-    size_t i;
     const char* SECTIONNAME = ".dynsym";
-    const elf64_word_t SH_TYPE = SHT_DYNSYM;
 
     if (!_is_valid_elf64(elf) || !name || !sym)
         goto done;
 
-    /* Find the symbol table section header */
-    if ((index = _find_shdr(elf, SECTIONNAME)) == (size_t)-1)
+    elf64_sorted_sym_t query;
+    query.section_name = SECTIONNAME;
+    query.name = name;
+
+    const elf64_sorted_sym_t* result = (const elf64_sorted_sym_t*)bsearch(
+        &query,
+        elf->syms_by_name,
+        elf->syms_size,
+        sizeof(elf64_sorted_sym_t),
+        (int (*)(const void*, const void*))_compare_sorted_syms_name);
+    if (!result)
         goto done;
 
-    if (index == 0 || index >= _get_header(elf)->e_shnum)
-        goto done;
-
-    /* Set pointer to section header */
-    if (!(sh = _get_shdr(elf, index)))
-        goto done;
-
-    /* If this is not a symbol table */
-    if (sh->sh_type != SH_TYPE)
-        goto done;
-
-    /* Sanity check */
-    if (sh->sh_entsize != sizeof(elf64_sym_t))
-        goto done;
-
-    /* Set pointer to symbol table section */
-    if (!(symtab = (const elf64_sym_t*)_get_section(elf, index)))
-        goto done;
-
-    /* Calculate number of symbol table entries */
-    n = sh->sh_size / sh->sh_entsize;
-
-    for (i = 1; i < n; i++)
-    {
-        const elf64_sym_t* p = &symtab[i];
-        const char* s;
-
-        /* Skip empty names */
-        if (p->st_name == 0)
-            continue;
-
-        /* If illegal name */
-        if (!(s = elf64_get_string_from_dynstr(elf, p->st_name)))
-            goto done;
-
-        /* If found */
-        if (strcmp(name, s) == 0)
-        {
-            *sym = *p;
-            rc = 0;
-            goto done;
-        }
-    }
+    *sym = *result->sym;
+    rc = 0;
 
 done:
     return rc;
