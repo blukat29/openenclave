@@ -245,6 +245,13 @@ typedef struct
 
 typedef struct
 {
+    const char* section_name;
+    const char* name;
+    const elf64_sym_t* sym;
+} elf64_sorted_sym_t;
+
+typedef struct
+{
     /* Magic number (ELF_MAGIC) */
     unsigned int magic;
 
@@ -253,6 +260,10 @@ typedef struct
 
     /* File image size */
     size_t size;
+
+    /* Sorted symbol table */
+    elf64_sorted_sym_t* syms_by_name;
+    size_t syms_size;
 } elf64_t;
 
 typedef struct
@@ -269,6 +280,11 @@ int elf64_test_header(const elf64_ehdr_t* header);
 int elf64_load(const char* path, elf64_t* elf);
 
 int elf64_unload(elf64_t* elf);
+
+int elf64_get_symbol_table(
+    const elf64_t* elf,
+    const elf64_sym_t** symtab,
+    size_t* size);
 
 int elf64_get_dynamic_symbol_table(
     const elf64_t* elf,
