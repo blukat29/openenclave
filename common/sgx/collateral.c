@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "collateral.h"
+#include <ctype.h>
 #include <openenclave/bits/attestation.h>
 #include <openenclave/internal/calls.h>
 #include <openenclave/internal/crypto/cert.h>
@@ -194,6 +195,80 @@ done:
     return result;
 }
 
+static uint8_t _hex_to_num(char c)
+{
+    if ('0' <= c && c <= '9')
+        return (uint8_t)(c - '0');
+    if ('A' <= c && c <= 'F')
+        return (uint8_t)(c - 'A' + 10);
+    if ('a' <= c && c <= 'f')
+        return (uint8_t)(c - 'a' + 10);
+    return 0;
+}
+
+// Hot patch. It should be properly fixed later by OE devs.
+// https://github.com/openenclave/openenclave/issues/4105
+// https://github.com/intel/SGXDataCenterAttestationPrimitives/issues/186
+static oe_result_t _read_crl(oe_crl_t* crl, const uint8_t* data, size_t size)
+{
+    oe_result_t result = OE_FAILURE;
+    bool is_hex_str = true;
+    uint8_t* buffer = NULL;
+    const uint8_t* der_data = NULL;
+    size_t der_data_size = 0;
+
+    if (!data || !crl || size == 0)
+        OE_RAISE(OE_INVALID_PARAMETER);
+
+    if (data[size - 1] == 0)
+        size -= 1;
+
+    if (size % 2 != 0)
+        is_hex_str = false;
+
+    for (size_t i = 0; i < size; ++i)
+        if (isxdigit(data[i]) == 0)
+            is_hex_str = false;
+
+    if (is_hex_str)
+    {
+        buffer = (uint8_t*)oe_malloc(size / 2);
+        if (buffer == NULL)
+            OE_RAISE(OE_OUT_OF_MEMORY);
+
+        for (size_t i = 0; i < size / 2; ++i)
+        {
+            uint8_t hi = _hex_to_num((char)data[i * 2]);
+            uint8_t lo = _hex_to_num((char)data[i * 2 + 1]);
+            buffer[i] = hi * 16 + lo;
+        }
+
+        OE_TRACE_WARNING("Decoded hex-encoded CRL DER");
+
+        der_data = buffer;
+        der_data_size = size / 2;
+    }
+    else
+    {
+        der_data = data;
+        der_data_size = size;
+    }
+
+    if (der_data_size == 0)
+        OE_RAISE(OE_INVALID_PARAMETER);
+
+    // If DER CRL buffer has null terminator, need to remove it before
+    // send the DER data to crypto API for reading.
+    if (der_data[der_data_size - 1] == 0)
+        der_data_size -= 1;
+
+    result = oe_crl_read_der(crl, der_data, der_data_size);
+
+done:
+    oe_free(buffer);
+    return result;
+}
+
 typedef struct _url
 {
     char str[256];
@@ -328,18 +403,11 @@ oe_result_t oe_validate_revocation_list(
         // Otherwise, CRL should have v3 structure which is DER encoded
         else
         {
-            size_t der_data_size = sgx_endorsements->items[i].size;
-            if (der_data_size == 0)
-                OE_RAISE(OE_INVALID_PARAMETER);
-
-            // If DER CRL buffer has null terminator, need to remove it before
-            // send the DER data to crypto API for reading.
-            if (sgx_endorsements->items[i].data[der_data_size - 1] == 0)
-                der_data_size -= 1;
-
             OE_CHECK_MSG(
-                oe_crl_read_der(
-                    &crls[j], sgx_endorsements->items[i].data, der_data_size),
+                _read_crl(
+                    &crls[j],
+                    sgx_endorsements->items[i].data,
+                    sgx_endorsements->items[i].size),
                 "Failed to read CRL. %s",
                 oe_result_str(result));
         }
